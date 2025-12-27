@@ -1,0 +1,7 @@
+tmp/
+*.log
+vendor/
+testdata/
+*.test
+*.out
+

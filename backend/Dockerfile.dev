@@ -1,0 +1,22 @@
+FROM golang:1.22-alpine
+
+# Air（ホットリロードツール）のインストール
+# Go 1.21互換性のあるバージョンを指定
+RUN go install github.com/cosmtrek/air@v1.49.0
+
+# 作業ディレクトリの設定
+WORKDIR /app
+
+# 必要なパッケージのインストール
+RUN apk add --no-cache git
+
+# go.modとgo.sumをコピーして依存関係をダウンロード
+COPY go.mod go.sum ./
+RUN go mod download
+
+# アプリケーションコードをコピー
+COPY . .
+
+# Airをデフォルトコマンドとして実行
+CMD ["air", "-c", ".air.toml"]
+
