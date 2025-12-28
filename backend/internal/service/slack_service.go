@@ -13,6 +13,12 @@ type SlackService struct {
 	channelID string
 }
 
+const (
+    BaseTimeID   = 25
+    BaseHour     = 6
+    MinutesStep  = 30
+)
+
 func NewSlackService(cfg *config.Config) *SlackService {
 	return &SlackService{
 		client:    slack.New(cfg.SlackBotToken),
@@ -24,7 +30,7 @@ func NewSlackService(cfg *config.Config) *SlackService {
 func (s *SlackService) SendNotification(notification *model.Notification, userName, slackUserID string) error {
 	// Block Kitメッセージを構築
 	blocks := s.buildMessageBlocks(notification, userName)
-	
+
 	// チャンネル送信
 	if err := s.sendToChannel(blocks); err != nil {
 		return fmt.Errorf("failed to send to channel: %w", err)
@@ -89,8 +95,8 @@ func (s *SlackService) buildMessageBlocks(notification *model.Notification, user
 // timeID 25 = 6:00 を基準とする
 func (s *SlackService) timeIDToTimeString(timeID int) string {
 	// timeID 25 = 6:00 なので、timeID - 25 = 0時からの経過時間（30分単位）
-	hoursFromBase := (timeID - 25) / 2
-	minutesFromBase := ((timeID - 25) % 2) * 30
+	hoursFromBase := (timeID - BaseTimeID) / 2
+	minutesFromBase := ((timeID - BaseTimeID) % 2) * 30
 
 	hours := 6 + hoursFromBase
 	minutes := minutesFromBase
