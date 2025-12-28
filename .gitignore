@@ -1,5 +1,6 @@
 # Environment variables
 .env
+.env.example
 
 # Go
 backend/*.exe
@@ -13,6 +14,7 @@ backend/*.test
 backend/*.out
 backend/go.work
 backend/go.work.sum
+backend/tmp/
 
 # Flutter
 frontend/.dart_tool/
@@ -25,8 +27,6 @@ frontend/build/
 frontend/.idea/
 frontend/*.iml
 frontend/.metadata
-frontend/.flutter-plugins
-frontend/.flutter-plugins-dependencies
 
 # IDE
 .vscode/
@@ -38,4 +38,3 @@ frontend/.flutter-plugins-dependencies
 # OS
 .DS_Store
 Thumbs.db
-
