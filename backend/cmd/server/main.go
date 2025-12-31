@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"seeft-slack-notification/internal/config"
 	"seeft-slack-notification/internal/database"
 	"seeft-slack-notification/internal/handler"
 	"seeft-slack-notification/internal/repository"
 	"seeft-slack-notification/internal/service"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
@@ -27,23 +28,31 @@ func main() {
 	}
 	defer db.Close()
 
-	// リポジトリの初期化
+	// 1. リポジトリの初期化
+	// ActionLogRepository が必要になったので追加します
 	userRepo := repository.NewUserRepository(db)
 	shiftRepo := repository.NewShiftRepository(db)
 	notificationRepo := repository.NewNotificationRepository(db)
+	actionLogRepo := repository.NewActionLogRepository(db) // ★追加
 
-	// サービスの初期化
-	shiftService := service.NewShiftService(shiftRepo, userRepo)
+	// 2. サービスの初期化
+	// SlackServiceを先に作ります
 	slackService := service.NewSlackService(cfg)
 
-	// ハンドラーの初期化
-	shiftHandler := handler.NewShiftHandler(
-		shiftService,
-		slackService,
+	// ShiftServiceには、DB(トランザクション用)と、ログRepo、SlackServiceなど全てを渡します
+	shiftService := service.NewShiftService(
+		db, // ★追加: トランザクション制御用
 		shiftRepo,
-		notificationRepo,
 		userRepo,
+		actionLogRepo, // ★追加: ログ保存用
+		slackService,  // ★追加: 通知用
 	)
+
+	// 3. ハンドラーの初期化
+	// ShiftHandlerは Service だけを受け取るシンプルな形になりました
+	shiftHandler := handler.NewShiftHandler(shiftService)
+
+	// 他のハンドラー（変更なし）
 	notificationHandler := handler.NewNotificationHandler(notificationRepo)
 	readHandler := handler.NewReadHandler(notificationRepo)
 
@@ -53,8 +62,8 @@ func main() {
 	// ミドルウェア
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	
-	// CORS設定（環境変数から許可オリジンを読み込む）
+
+	// CORS設定
 	corsConfig := middleware.CORSConfig{
 		AllowOrigins: cfg.CORSAllowOrigins,
 		AllowMethods: []string{echo.GET, echo.POST, echo.PUT, echo.DELETE, echo.OPTIONS},
@@ -74,4 +83,3 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
-
