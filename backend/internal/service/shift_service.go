@@ -50,7 +50,7 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 	if err != nil {
 		return fmt.Errorf("failed to get all shifts: %w", err)
 	}
-	
+
 	// Key: "YearID-TimeID-Date-UserID"
 	currentShiftMap := make(map[string]*model.Shift)
 	for _, shift := range currentShifts {
@@ -71,7 +71,7 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 
 		if oldShift, exists := currentShiftMap[key]; exists {
 			// --- 【更新パターン】DBに既に存在する ---
-			
+
 			// 差分があるかチェック
 			if oldShift.TaskName != change.TaskName || oldShift.Weather != change.Weather {
 				// 値を更新
@@ -89,14 +89,14 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 					return err
 				}
 			}
-			
+
 			// 処理済みとしてマップから消す（重要！）
 			// ※ここで消すことで、後でマップに残ったものが「削除対象」になる
 			delete(currentShiftMap, key)
 
 		} else {
 			// --- 【新規パターン】DBに存在しない ---
-			
+
 			newShift := &model.Shift{
 				YearID:   change.YearID,
 				TimeID:   change.TimeID,
@@ -127,8 +127,9 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 		}
 
 		// ログ保存 (削除なのでnewはnil)
-		if err := s.logAction(tx, deletedShift.ID, "DELETE", deletedShift, nil)
-		// エラーハンドリング省略
+		if err := s.logAction(tx, deletedShift.ID, "DELETE", deletedShift, nil); err != nil {
+			return fmt.Errorf("failed to log delete action: %w", err)
+		}
 	}
 
 	// 6. 全ての処理が成功したので、コミット（保存確定）
@@ -148,21 +149,21 @@ func makeKey(year, time int, date string, user int) string {
 
 // preloadUserMap 全ユーザーを取得して 名前->ID のマップを作る
 func (s *ShiftService) preloadUserMap() (map[string]int, error) {
-    // ユーザーリポジトリに GetAll() のようなメソッドが必要ですが、
-    // ここでは簡易的に全ユーザーを取れると仮定、もしくは必要な分だけ取る
-    // ★実装簡略化のため、今回は「名前」で引ける辞書を作るイメージです
-    // 実際には userRepo.GetAll() を実装してそれを呼びます
-    
-    // 仮の実装イメージ:
-    // users, _ := s.userRepo.GetAll() 
-    // m := make(map[string]int)
-    // for _, u := range users { m[u.Name] = u.ID }
-    // return m, nil
-    
-    // ※もし userRepo.GetAll がまだ無いなら、一旦スキップして
-    // ループ内で GetByName を呼ぶ元の方式でも動きますが、速度は落ちます。
-    // 今回はコンパイルを通すために、一旦「空のマップ」を返します（適宜実装してください）
-    return map[string]int{}, nil 
+	// ユーザーリポジトリに GetAll() のようなメソッドが必要ですが、
+	// ここでは簡易的に全ユーザーを取れると仮定、もしくは必要な分だけ取る
+	// ★実装簡略化のため、今回は「名前」で引ける辞書を作るイメージです
+	// 実際には userRepo.GetAll() を実装してそれを呼びます
+
+	// 仮の実装イメージ:
+	// users, _ := s.userRepo.GetAll()
+	// m := make(map[string]int)
+	// for _, u := range users { m[u.Name] = u.ID }
+	// return m, nil
+
+	// ※もし userRepo.GetAll がまだ無いなら、一旦スキップして
+	// ループ内で GetByName を呼ぶ元の方式でも動きますが、速度は落ちます。
+	// 今回はコンパイルを通すために、一旦「空のマップ」を返します（適宜実装してください）
+	return map[string]int{}, nil
 }
 
 // logAction 変更履歴をJSON化して保存する
@@ -170,14 +171,14 @@ func (s *ShiftService) logAction(tx *sql.Tx, shiftID int, actionType string, old
 	// 差分Payloadの作成
 	// model.DiffPayload の定義に合わせて作成
 	diff := map[string]interface{}{}
-    
-    if actionType == "UPDATE" {
-        diff["changes"] = []map[string]string{
-            {"field": "task_name", "old": oldVal.TaskName, "new": newVal.TaskName},
-        }
-    } else if actionType == "CREATE" {
-        diff["new_task"] = newVal.TaskName
-    }
+
+	if actionType == "UPDATE" {
+		diff["changes"] = []map[string]string{
+			{"field": "task_name", "old": oldVal.TaskName, "new": newVal.TaskName},
+		}
+	} else if actionType == "CREATE" {
+		diff["new_task"] = newVal.TaskName
+	}
 
 	payload, err := json.Marshal(diff)
 	if err != nil {
