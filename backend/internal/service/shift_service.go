@@ -11,19 +11,27 @@ import (
 )
 
 type ShiftService struct {
-	db            *sql.DB // トランザクション制御用
+	db            *sql.DB
 	shiftRepo     *repository.ShiftRepository
 	userRepo      *repository.UserRepository
-	actionLogRepo *repository.ActionLogRepository // ログ保存用に追加
+	actionLogRepo *repository.ActionLogRepository
+	slackService  *SlackService // ★追加: Slack通知用サービス
 }
 
 // NewShiftService コンストラクタ
-func NewShiftService(db *sql.DB, shiftRepo *repository.ShiftRepository, userRepo *repository.UserRepository, logRepo *repository.ActionLogRepository) *ShiftService {
+func NewShiftService(
+	db *sql.DB,
+	shiftRepo *repository.ShiftRepository,
+	userRepo *repository.UserRepository,
+	logRepo *repository.ActionLogRepository,
+	slackService *SlackService, // ★引数に追加
+) *ShiftService {
 	return &ShiftService{
 		db:            db,
 		shiftRepo:     shiftRepo,
 		userRepo:      userRepo,
 		actionLogRepo: logRepo,
+		slackService:  slackService,
 	}
 }
 
@@ -34,18 +42,22 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	// 関数終了時に、コミットされていなければロールバック（安全策）
 	defer tx.Rollback()
 
-	// 2. 準備: ユーザー情報を全取得してマップ化 (名前 -> ID)
-	// ループ内で毎回DBに問い合わせないための高速化
-	userMap, err := s.preloadUserMap()
+	// 2. 準備: ユーザー情報を全取得してマップ化 (名前 -> User構造体)
+	// 通知用にSlackUserIDも必要なので、IDだけではなくUserごと取得します
+	nameToUserMap, err := s.preloadUserMap()
 	if err != nil {
 		return err
 	}
 
+	// 削除通知用に ID -> User のマップも作っておく
+	idToUserMap := make(map[int]*model.User)
+	for _, u := range nameToUserMap {
+		idToUserMap[u.ID] = u
+	}
+
 	// 3. 準備: 現在の有効なシフトを全取得してマップ化 (Key -> Shift)
-	// これで「DBにあるか？」の確認が一瞬で終わる
 	currentShifts, err := s.shiftRepo.GetAll()
 	if err != nil {
 		return fmt.Errorf("failed to get all shifts: %w", err)
@@ -60,38 +72,36 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 
 	// 4. GASデータ(gasChanges)をループして「新規」か「更新」を処理
 	for _, change := range gasChanges {
-		// ユーザー名からIDを取得
-		userID, ok := userMap[change.UserName]
+		// ユーザー名からUser情報を取得
+		user, ok := nameToUserMap[change.UserName]
 		if !ok {
 			log.Printf("Warning: User not found: %s", change.UserName)
 			continue // 知らないユーザーはスキップ
 		}
 
-		key := makeKey(change.YearID, change.TimeID, change.Date, userID)
+		key := makeKey(change.YearID, change.TimeID, change.Date, user.ID)
 
 		if oldShift, exists := currentShiftMap[key]; exists {
 			// --- 【更新パターン】DBに既に存在する ---
 
 			// 差分があるかチェック
 			if oldShift.TaskName != change.TaskName || oldShift.Weather != change.Weather {
-				// 値を更新
 				newShift := *oldShift // コピーを作成
 				newShift.TaskName = change.TaskName
-				newShift.Weather = change.Weather // ※Weatherも更新対象なら
+				newShift.Weather = change.Weather
 
 				// DB更新
 				if err := s.shiftRepo.Update(tx, &newShift); err != nil {
 					return fmt.Errorf("failed to update shift: %w", err)
 				}
 
-				// ログ保存
-				if err := s.logAction(tx, oldShift.ID, "UPDATE", oldShift, &newShift); err != nil {
+				// ログ保存 & Slack通知
+				if err := s.logAction(tx, oldShift.ID, "UPDATE", oldShift, &newShift, user); err != nil {
 					return err
 				}
 			}
 
-			// 処理済みとしてマップから消す（重要！）
-			// ※ここで消すことで、後でマップに残ったものが「削除対象」になる
+			// 処理済みとしてマップから消す
 			delete(currentShiftMap, key)
 
 		} else {
@@ -102,18 +112,17 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 				TimeID:   change.TimeID,
 				Date:     change.Date,
 				Weather:  change.Weather,
-				UserID:   userID,
+				UserID:   user.ID,
 				TaskName: change.TaskName,
 			}
 
-			// DB作成 (IDがセットされて返ってくる想定)
+			// DB作成 (Create内でnewShift.IDがセットされる想定)
 			if err := s.shiftRepo.Create(tx, newShift); err != nil {
 				return fmt.Errorf("failed to create shift: %w", err)
 			}
 
-			// ログ保存 (新規なのでoldはnil)
-			// 注意: Create内でIDがnewShift.IDに入っている必要がある
-			if err := s.logAction(tx, newShift.ID, "CREATE", nil, newShift); err != nil {
+			// ログ保存 & Slack通知
+			if err := s.logAction(tx, newShift.ID, "CREATE", nil, newShift, user); err != nil {
 				return err
 			}
 		}
@@ -126,8 +135,16 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 			return fmt.Errorf("failed to delete shift ID %d: %w", deletedShift.ID, err)
 		}
 
-		// ログ保存 (削除なのでnewはnil)
-		if err := s.logAction(tx, deletedShift.ID, "DELETE", deletedShift, nil); err != nil {
+		// 削除対象のユーザー情報を取得
+		user, ok := idToUserMap[deletedShift.UserID]
+		if !ok {
+			// ユーザーが見つからなくても削除は進めるが、User情報は空のダミーを入れるかログを吐く
+			log.Printf("Warning: User ID %d not found for deleted shift %d", deletedShift.UserID, deletedShift.ID)
+			user = &model.User{Name: "Unknown", SlackUserID: ""} // ダミー
+		}
+
+		// ログ保存 & Slack通知
+		if err := s.logAction(tx, deletedShift.ID, "DELETE", deletedShift, nil, user); err != nil {
 			return fmt.Errorf("failed to log delete action: %w", err)
 		}
 	}
@@ -147,29 +164,28 @@ func makeKey(year, time int, date string, user int) string {
 	return fmt.Sprintf("%d-%d-%s-%d", year, time, date, user)
 }
 
-// preloadUserMap 全ユーザーを取得して 名前->ID のマップを作る
-func (s *ShiftService) preloadUserMap() (map[string]int, error) {
-	// ユーザーリポジトリに GetAll() のようなメソッドが必要ですが、
-	// ここでは簡易的に全ユーザーを取れると仮定、もしくは必要な分だけ取る
-	// ★実装簡略化のため、今回は「名前」で引ける辞書を作るイメージです
-	// 実際には userRepo.GetAll() を実装してそれを呼びます
+// preloadUserMap 全ユーザーを取得して 名前->User構造体 のマップを作る
+func (s *ShiftService) preloadUserMap() (map[string]*model.User, error) {
+	// さっき作った GetAll をここで呼ぶ！
+	users, err := s.userRepo.GetAll()
+	if err != nil {
+		return nil, err
+	}
 
-	// 仮の実装イメージ:
-	// users, _ := s.userRepo.GetAll()
-	// m := make(map[string]int)
-	// for _, u := range users { m[u.Name] = u.ID }
-	// return m, nil
+	// 使いやすい辞書（マップ）に変換する
+	// "田中" -> {ID: 1, Name: "田中", SlackID: "U12345..."}
+	m := make(map[string]*model.User)
+	for _, u := range users {
+		m[u.Name] = u
+	}
 
-	// ※もし userRepo.GetAll がまだ無いなら、一旦スキップして
-	// ループ内で GetByName を呼ぶ元の方式でも動きますが、速度は落ちます。
-	// 今回はコンパイルを通すために、一旦「空のマップ」を返します（適宜実装してください）
-	return map[string]int{}, nil
+	return m, nil
 }
 
-// logAction 変更履歴をJSON化して保存する
-func (s *ShiftService) logAction(tx *sql.Tx, shiftID int, actionType string, oldVal, newVal *model.Shift) error {
-	// 差分Payloadの作成
-	// model.DiffPayload の定義に合わせて作成
+// logAction 変更履歴を保存し、Slack通知キューに追加する
+// 引数に user (*model.User) を追加しました
+func (s *ShiftService) logAction(tx *sql.Tx, shiftID int, actionType string, oldVal, newVal *model.Shift, user *model.User) error {
+	// 1. DB用: 差分Payloadの作成
 	diff := map[string]interface{}{}
 
 	if actionType == "UPDATE" {
@@ -178,13 +194,50 @@ func (s *ShiftService) logAction(tx *sql.Tx, shiftID int, actionType string, old
 		}
 	} else if actionType == "CREATE" {
 		diff["new_task"] = newVal.TaskName
+	} else if actionType == "DELETE" {
+		diff["deleted_task"] = oldVal.TaskName
 	}
 
-	payload, err := json.Marshal(diff)
+	payloadJSON, err := json.Marshal(diff)
 	if err != nil {
 		return fmt.Errorf("failed to marshal diff: %w", err)
 	}
 
-	// ActionLogRepositoryのCreateを呼ぶ
-	return s.actionLogRepo.Create(tx, shiftID, actionType, payload)
+	// DBにログ保存
+	if err := s.actionLogRepo.Create(tx, shiftID, actionType, payloadJSON); err != nil {
+		return err
+	}
+
+	// 2. Slack通知用: データの準備
+	// DELETEの場合は newVal が nil なので、oldVal から情報を取る必要がある
+	var targetShift *model.Shift
+	var taskName, oldTaskName string
+
+	if newVal != nil {
+		targetShift = newVal
+		taskName = newVal.TaskName
+	} else {
+		// DELETEの場合
+		targetShift = oldVal
+	}
+
+	if oldVal != nil {
+		oldTaskName = oldVal.TaskName
+	}
+
+	notificationPayload := NotificationPayload{
+		ActionType:  actionType,
+		UserName:    user.Name,
+		SlackUserID: user.SlackUserID, // ここでSlackIDをセット
+		Date:        targetShift.Date,
+		TimeID:      targetShift.TimeID,
+		Weather:     targetShift.Weather,
+		TaskName:    taskName,
+		OldTaskName: oldTaskName,
+	}
+
+	// Slack通知キューに放り込む (非同期)
+	s.slackService.EnqueueNotification(notificationPayload)
+
+	return nil
 }
