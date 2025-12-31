@@ -81,7 +81,7 @@ func (r *ShiftRepository) Update(tx *sql.Tx, shift *model.Shift) error {
 // GetAll(): deleted_at IS NULLでフィルタリング
 // 有効なシフトだけを取得
 func (r *ShiftRepository) GetAll() ([]*model.Shift, error) {
-	query := `SELECT id, year_id, time_id, date, weather, user_id, task_name, created_at, deleted_at
+	query := `SELECT id, year_id, time_id, date, weather, user_id, task_name, created_at, updated_at, deleted_at
 	FROM shifts
 	WHERE deleted_at IS NULL`
 
