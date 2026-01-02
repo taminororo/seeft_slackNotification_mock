@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"seeft-slack-notification/internal/config"
 	"seeft-slack-notification/internal/database"
 	"seeft-slack-notification/internal/handler"
 	"seeft-slack-notification/internal/repository"
 	"seeft-slack-notification/internal/service"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
@@ -27,25 +28,35 @@ func main() {
 	}
 	defer db.Close()
 
-	// リポジトリの初期化
+	// 1. リポジトリの初期化
+	// ActionLogRepository が必要になったので追加します
 	userRepo := repository.NewUserRepository(db)
 	shiftRepo := repository.NewShiftRepository(db)
-	notificationRepo := repository.NewNotificationRepository(db)
+	//notificationRepo := repository.NewNotificationRepository(db)
+	actionLogRepo := repository.NewActionLogRepository(db) // ★追加
+	shiftReadRepo := repository.NewShiftReadRepository(db) // ★追加
 
-	// サービスの初期化
-	shiftService := service.NewShiftService(shiftRepo, userRepo)
+	// 2. サービスの初期化
+	// SlackServiceを先に作ります
 	slackService := service.NewSlackService(cfg)
 
-	// ハンドラーの初期化
-	shiftHandler := handler.NewShiftHandler(
-		shiftService,
-		slackService,
+	// ShiftServiceには、DB(トランザクション用)と、ログRepo、SlackServiceなど全てを渡します
+	shiftService := service.NewShiftService(
+		db,
 		shiftRepo,
-		notificationRepo,
 		userRepo,
+		actionLogRepo,
+		slackService,
+		shiftReadRepo,
 	)
-	notificationHandler := handler.NewNotificationHandler(notificationRepo)
-	readHandler := handler.NewReadHandler(notificationRepo)
+
+	// 3. ハンドラーの初期化
+	// ShiftHandlerは Service だけを受け取るシンプルな形になりました
+	shiftHandler := handler.NewShiftHandler(shiftService)
+
+	// 他のハンドラー（変更なし）
+	//notificationHandler := handler.NewNotificationHandler(notificationRepo)
+	//readHandler := handler.NewReadHandler(notificationRepo)
 
 	// Echoインスタンスの作成
 	e := echo.New()
@@ -53,8 +64,8 @@ func main() {
 	// ミドルウェア
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	
-	// CORS設定（環境変数から許可オリジンを読み込む）
+
+	// CORS設定
 	corsConfig := middleware.CORSConfig{
 		AllowOrigins: cfg.CORSAllowOrigins,
 		AllowMethods: []string{echo.GET, echo.POST, echo.PUT, echo.DELETE, echo.OPTIONS},
@@ -65,8 +76,8 @@ func main() {
 	// ルーティング
 	api := e.Group("/api")
 	api.POST("/update_shifts", shiftHandler.UpdateShifts)
-	api.GET("/notifications", notificationHandler.GetNotifications)
-	api.POST("/notifications/:id/read", readHandler.MarkAsRead)
+	//api.GET("/notifications", notificationHandler.GetNotifications)
+	//api.POST("/notifications/:id/read", readHandler.MarkAsRead)
 
 	// サーバー起動
 	port := fmt.Sprintf(":%s", cfg.APIPort)
@@ -74,4 +85,3 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
-

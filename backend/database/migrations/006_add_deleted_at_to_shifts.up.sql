@@ -1,0 +1,1 @@
+ALTER TABLE shifts ADD COLUMN deleted_at TIMESTAMP;
