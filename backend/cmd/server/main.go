@@ -34,6 +34,7 @@ func main() {
 	shiftRepo := repository.NewShiftRepository(db)
 	//notificationRepo := repository.NewNotificationRepository(db)
 	actionLogRepo := repository.NewActionLogRepository(db) // ★追加
+	shiftReadRepo := repository.NewShiftReadRepository(db) // ★追加
 
 	// 2. サービスの初期化
 	// SlackServiceを先に作ります
@@ -41,11 +42,12 @@ func main() {
 
 	// ShiftServiceには、DB(トランザクション用)と、ログRepo、SlackServiceなど全てを渡します
 	shiftService := service.NewShiftService(
-		db, // ★追加: トランザクション制御用
+		db,
 		shiftRepo,
 		userRepo,
-		actionLogRepo, // ★追加: ログ保存用
-		slackService,  // ★追加: 通知用
+		actionLogRepo,
+		slackService,
+		shiftReadRepo,
 	)
 
 	// 3. ハンドラーの初期化

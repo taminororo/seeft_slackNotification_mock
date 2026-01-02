@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/slack-go/slack"
 	"seeft-slack-notification/internal/config"
+
+	"github.com/slack-go/slack"
 )
 
 // NotificationPayload 通知に必要なデータの塊

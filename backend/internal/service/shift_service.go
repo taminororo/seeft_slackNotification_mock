@@ -16,6 +16,7 @@ type ShiftService struct {
 	userRepo      *repository.UserRepository
 	actionLogRepo *repository.ActionLogRepository
 	slackService  *SlackService // ★追加: Slack通知用サービス
+	shiftReadRepo *repository.ShiftReadRepository
 }
 
 // NewShiftService コンストラクタ
@@ -25,6 +26,7 @@ func NewShiftService(
 	userRepo *repository.UserRepository,
 	logRepo *repository.ActionLogRepository,
 	slackService *SlackService, // ★引数に追加
+	shiftReadRepo *repository.ShiftReadRepository,
 ) *ShiftService {
 	return &ShiftService{
 		db:            db,
@@ -32,6 +34,7 @@ func NewShiftService(
 		userRepo:      userRepo,
 		actionLogRepo: logRepo,
 		slackService:  slackService,
+		shiftReadRepo: shiftReadRepo,
 	}
 }
 
@@ -119,6 +122,11 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 			// DB作成 (Create内でnewShift.IDがセットされる想定)
 			if err := s.shiftRepo.Create(tx, newShift); err != nil {
 				return fmt.Errorf("failed to create shift: %w", err)
+			}
+
+			// ★追加: 既読レコードを「未読(false)」で作成
+			if err := s.shiftReadRepo.Upsert(tx, newShift.ID, user.ID, false); err != nil {
+				return err
 			}
 
 			// ログ保存 & Slack通知
