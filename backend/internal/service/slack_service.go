@@ -72,17 +72,17 @@ func (s *SlackService) send(p NotificationPayload) error {
 	blocks := s.buildMessageBlocks(p)
 
 	// 1. チャンネルに送信
-	_, _, err := s.client.PostMessage(
-		s.channelID,
-		slack.MsgOptionBlocks(blocks...),
-	)
-	if err != nil {
-		return fmt.Errorf("channel send error: %w", err)
-	}
+	// _, _, err := s.client.PostMessage(
+	// 	s.channelID,
+	// 	slack.MsgOptionBlocks(blocks...),
+	// )
+	// if err != nil {
+	// 	return fmt.Errorf("channel send error: %w", err)
+	// }
 
 	// 2. 本人にDM送信 (IDがある場合のみ)
 	if p.SlackUserID != "" {
-		_, _, err = s.client.PostMessage(
+		_, _, err := s.client.PostMessage(
 			p.SlackUserID,
 			slack.MsgOptionBlocks(blocks...),
 		)
