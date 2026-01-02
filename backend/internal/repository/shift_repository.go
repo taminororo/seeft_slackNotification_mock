@@ -19,7 +19,8 @@ func NewShiftRepository(db *sql.DB) *ShiftRepository {
 func (r *ShiftRepository) GetByUniqueKey(yearID, timeID int, date, weather string, userID int) (*model.Shift, error) {
 	query := `SELECT id, year_id, time_id, date, weather, user_id, task_name, created_at, updated_at 
 	          FROM shifts 
-	          WHERE year_id = $1 AND time_id = $2 AND date = $3 AND weather = $4 AND user_id = $5`
+	          WHERE year_id = $1 AND time_id = $2 AND date = $3 AND weather = $4 AND user_id = $5
+			  AND deleted_at IS NULL`
 
 	var shift model.Shift
 	err := r.db.QueryRow(query, yearID, timeID, date, weather, userID).Scan(
