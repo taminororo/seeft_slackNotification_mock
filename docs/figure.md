@@ -72,8 +72,7 @@ erDiagram
         BIGSERIAL id PK
         INT user_id FK
         DATE date
-        TIME start_time
-        TIME end_time
+        INT time_id
         VARCHAR task_name
         TIMESTAMP created_at
         TIMESTAMP updated_at
