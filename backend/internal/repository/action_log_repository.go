@@ -20,7 +20,7 @@ func (r *ActionLogRepository) Create(tx *sql.Tx, shiftID int, actionType string,
 	// }
 
 	query := `
-		INSERT INTO action_log (shift_id, action_type, payload)
+		INSERT INTO action_log (shift_id, action_type, diff_payload)
 		VALUES ($1, $2, $3)`
 
 	// トランザクション(tx)を使用

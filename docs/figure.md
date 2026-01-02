@@ -71,9 +71,11 @@ erDiagram
     shifts {
         BIGSERIAL id PK
         INT user_id FK
-        DATE date
-        INT time_id
-        VARCHAR task_name
+        INT year_id        "Go: YearID"
+        INT time_id        "Go: TimeID"
+        DATE date          "Go: Date"
+        VARCHAR weather    "Go: Weather"
+        VARCHAR task_name  "Go: TaskName"
         TIMESTAMP created_at
         TIMESTAMP updated_at
         TIMESTAMP deleted_at
