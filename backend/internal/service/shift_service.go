@@ -139,8 +139,8 @@ func (s *ShiftService) SyncShifts(gasChanges []model.ShiftChange) error {
 		user, ok := idToUserMap[deletedShift.UserID]
 		if !ok {
 			// ユーザーが見つからなくても削除は進めるが、User情報は空のダミーを入れるかログを吐く
-			log.Printf("Warning: User ID %d not found for deleted shift %d", deletedShift.UserID, deletedShift.ID)
-			user = &model.User{Name: "Unknown", SlackUserID: ""} // ダミー
+			log.Printf("Info: Orphan shift deleted (User ID %d not found). Skipping notification.", deletedShift.UserID)
+			continue
 		}
 
 		// ログ保存 & Slack通知
