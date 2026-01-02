@@ -32,7 +32,7 @@ func main() {
 	// ActionLogRepository が必要になったので追加します
 	userRepo := repository.NewUserRepository(db)
 	shiftRepo := repository.NewShiftRepository(db)
-	notificationRepo := repository.NewNotificationRepository(db)
+	//notificationRepo := repository.NewNotificationRepository(db)
 	actionLogRepo := repository.NewActionLogRepository(db) // ★追加
 
 	// 2. サービスの初期化
@@ -53,8 +53,8 @@ func main() {
 	shiftHandler := handler.NewShiftHandler(shiftService)
 
 	// 他のハンドラー（変更なし）
-	notificationHandler := handler.NewNotificationHandler(notificationRepo)
-	readHandler := handler.NewReadHandler(notificationRepo)
+	//notificationHandler := handler.NewNotificationHandler(notificationRepo)
+	//readHandler := handler.NewReadHandler(notificationRepo)
 
 	// Echoインスタンスの作成
 	e := echo.New()
@@ -74,8 +74,8 @@ func main() {
 	// ルーティング
 	api := e.Group("/api")
 	api.POST("/update_shifts", shiftHandler.UpdateShifts)
-	api.GET("/notifications", notificationHandler.GetNotifications)
-	api.POST("/notifications/:id/read", readHandler.MarkAsRead)
+	//api.GET("/notifications", notificationHandler.GetNotifications)
+	//api.POST("/notifications/:id/read", readHandler.MarkAsRead)
 
 	// サーバー起動
 	port := fmt.Sprintf(":%s", cfg.APIPort)

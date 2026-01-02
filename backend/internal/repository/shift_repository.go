@@ -92,7 +92,6 @@ func (r *ShiftRepository) GetAll() ([]*model.Shift, error) {
 	}
 	defer rows.Close()
 
-	//
 	var shifts []*model.Shift
 	for rows.Next() {
 		var shift model.Shift
