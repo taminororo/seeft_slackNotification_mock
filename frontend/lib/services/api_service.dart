@@ -26,25 +26,29 @@ class ApiService {
   }
 
   // 未読通知一覧を取得
-  Future<List<ShiftNotification>> getNotifications(int userId) async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/notifications?user_id=$userId'),
-      );
+ Future<List<ShiftNotification>> getNotifications(int userId) async {
+  try {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/notifications?user_id=$userId'),
+    ).timeout(const Duration(seconds: 10)); // タイムアウト追加
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final List<dynamic> notificationsJson = data['notifications'];
-        return notificationsJson
-            .map((json) => ShiftNotification.fromJson(json))
-            .toList();
-      } else {
-        throw Exception('Failed to load notifications');
-      }
-    } catch (e) {
-      throw Exception('Error: $e');
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      final notificationsJson = data['notifications'] as List?; // null安全
+      
+      if (notificationsJson == null) return [];
+      
+      return notificationsJson
+          .map((json) => ShiftNotification.fromJson(json))
+          .toList();
+    } else {
+      // サーバーからのエラーメッセージを含めるとデバッグしやすい
+      throw Exception('ステータスコード: ${response.statusCode}');
     }
+  } catch (e) {
+    throw Exception('通信エラー: $e');
   }
+}
 
   // 通知を既読にする
   Future<void> markAsRead(int notificationId, int userId) async {
