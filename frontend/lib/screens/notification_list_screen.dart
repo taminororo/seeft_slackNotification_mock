@@ -49,37 +49,27 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     }
   }
 
-  Future<void> _openNotificationDetail(ShiftNotification notification) async {
-    // 詳細画面を開く前に既読APIを呼び出す
-    try {
-      await widget.apiService.markAsRead(notification.id, widget.userId);
-      // 既読状態を更新
-      setState(() {
-        final index = _notifications.indexWhere((n) => n.id == notification.id);
-        if (index != -1) {
-          _notifications[index] = ShiftNotification(
-            id: notification.id,
-            userName: notification.userName,
-            yearId: notification.yearId,
-            timeId: notification.timeId,
-            date: notification.date,
-            weather: notification.weather,
-            oldTaskName: notification.oldTaskName,
-            newTaskName: notification.newTaskName,
-            isRead: true,
-            createdAt: notification.createdAt,
-          );
-        }
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('既読処理に失敗しました: $e')),
+Future<void> _openNotificationDetail(ShiftNotification notification) async {
+    // 1. 【楽観的更新】APIの結果を待たずに、まずUI上の既読状態をtrueにする
+    setState(() {
+      final index = _notifications.indexWhere((n) => n.id == notification.id);
+      if (index != -1) {
+        _notifications[index] = ShiftNotification(
+          id: notification.id,
+          userName: notification.userName,
+          yearId: notification.yearId,
+          timeId: notification.timeId,
+          date: notification.date,
+          weather: notification.weather,
+          oldTaskName: notification.oldTaskName,
+          newTaskName: notification.newTaskName,
+          isRead: true, // 即座に既読にする
+          createdAt: notification.createdAt,
         );
       }
-    }
+    });
 
-    // 詳細画面を表示
+    // 2. 詳細画面を表示（APIの完了を待たずに遷移）
     if (mounted) {
       Navigator.push(
         context,
@@ -87,6 +77,37 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
           builder: (context) => NotificationDetailScreen(notification: notification),
         ),
       );
+    }
+
+    // 3. 【バックグラウンド実行】裏側でAPIを呼び出す
+    try {
+      // ここで await しても、既に画面遷移とUI更新は終わっているのでユーザーを待たせない
+      await widget.apiService.markAsRead(notification.id, widget.userId);
+    } catch (e) {
+      // 4. 【ロールバック】APIが失敗した場合は未読に戻す
+      if (mounted) {
+        setState(() {
+          final index = _notifications.indexWhere((n) => n.id == notification.id);
+          if (index != -1) {
+            _notifications[index] = ShiftNotification(
+              id: notification.id,
+              userName: notification.userName,
+              yearId: notification.yearId,
+              timeId: notification.timeId,
+              date: notification.date,
+              weather: notification.weather,
+              oldTaskName: notification.oldTaskName,
+              newTaskName: notification.newTaskName,
+              isRead: false, // 未読に戻す
+              createdAt: notification.createdAt,
+            );
+          }
+        });
+        // ユーザーに失敗を通知
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('同期に失敗しました。未読に戻します: $e')),
+        );
+      }
     }
   }
 
